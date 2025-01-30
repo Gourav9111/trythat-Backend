@@ -1,5 +1,5 @@
 # Exclude common directories and files
-**/.git
+
 **/.gitignore
 **/.project
 **/.settings
