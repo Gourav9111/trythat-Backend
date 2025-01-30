@@ -1,6 +1,6 @@
 # Exclude common directories and files
 
-**/.gitignore
+
 **/.project
 **/.settings
 **/.toolstarget
