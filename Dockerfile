@@ -1,25 +1,26 @@
-# Exclude common directories and files
+# Base image
+FROM node:18
 
+# Create app directory
+WORKDIR /usr/src/app
 
-**/.project
-**/.settings
-**/.toolstarget
-**/.vs
-**/.vscode
-**/*.*proj.user
-**/*.dbmdl
-**/*.jfm
-**/charts
-**/docker-compose*
-**/compose*
-**/Dockerfile*
-**/node_modules
-**/npm-debug.log
-**/obj
-**/secrets.dev.yaml
-**/values.dev.yaml
-LICENSE
-README.md
+# A wildcard is used to ensure both package.json AND package-lock.json are copied
+COPY package*.json ./
 
-# Explicitly include the .env file
-!.env
+# Install app dependencies
+RUN npm install
+
+# Bundle app source
+COPY . .
+
+# Copy the .env and .env.development files
+COPY .env ./
+
+# Creates a "dist" folder with the production build
+RUN npm run build
+
+# Expose the port on which the app will run
+EXPOSE 8000
+
+# Start the server using the production build
+CMD ["npm", "run", "start:prod"]
