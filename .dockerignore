@@ -1,6 +1,6 @@
 **/.dockerignore
 **/.git
-**/.classpath
+>>> **/.classpath
 **/.gitignore
 **/.project
 **/.settings
