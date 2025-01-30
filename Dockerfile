@@ -1,5 +1,4 @@
 # Exclude common directories and files
-**/.classpath
 **/.git
 **/.gitignore
 **/.project
