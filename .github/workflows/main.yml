@@ -1,14 +1,4 @@
-## Stages
-# 1. snyk_scan - Software Composition Analysis (SCA)
-# 2. sonarcloud_scan - Static Application Security Testing (SAST)
-# 3. docker build and push
-# 4. deploy (AWS EC2)
-# 5. zap_scan - Dynamic Application Security Testing (DAST)
-# 6. trivy_scan - Container Security Scan
-
-
-
-name: Build, Test, and Deploy Backend with Docker, AWS, SonarCloud, Snyk and Zap
+name: CI/CD Pipeline with Security Scans and Deployment
 
 on:
   push:
@@ -16,8 +6,8 @@ on:
       - main
 
 jobs:
-  SCA_snyk_scan:
-    name: Run Snyk SCA Scan for Vulnerabilities
+  build:
+    name: Build Application
     runs-on: ubuntu-latest
 
     steps:
@@ -27,17 +17,37 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v2
         with:
-          node-version: '18' # Specify your Node.js version
+          node-version: '18'
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run Snyk to check for vulnerabilities
+      - name: Run Build
+        run: npm run build
+
+  SCA_snyk_scan:
+    name: Run Snyk SCA Scan
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Snyk Scan
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          command: monitor
+          command: test
 
   SAST_sonarcloud_scan:
     name: Run SonarCloud SAST Scan
@@ -53,8 +63,8 @@ jobs:
 
       - name: Run SonarCloud scan
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} # Store your SonarCloud token in GitHub Secrets
-          SONAR_HOST_URL: "https://sonarcloud.io" # SonarCloud URL
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: "https://sonarcloud.io"
         run: |
           sonar-scanner \
             -Dsonar.projectKey=Gourav9111_trythat-Backend \
@@ -65,7 +75,7 @@ jobs:
             -X
 
   docker_build_and_push:
-    name: Build and Push Docker Image for Backend
+    name: Build and Push Docker Image
     needs: SAST_sonarcloud_scan
     runs-on: ubuntu-latest
 
@@ -73,7 +83,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v2
 
-      - name: Build Docker Image for Backend
+      - name: Build Docker Image
         run: docker build -t ${{ secrets.DOCKER_USERNAME }}/trythat-backend:latest .
 
       - name: Log in to Docker Hub
@@ -86,7 +96,7 @@ jobs:
         run: docker push ${{ secrets.DOCKER_USERNAME }}/trythat-backend:latest
 
   deploy:
-    name: Deploy Backend Application to EC2
+    name: Deploy Backend to AWS EC2
     needs: docker_build_and_push
     runs-on: ubuntu-latest
 
@@ -96,47 +106,59 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/id_rsa
           chmod 600 /tmp/id_rsa
 
-      - name: SSH into EC2 and Deploy Backend Docker Container
+      - name: Deploy to EC2
         run: |
           ssh -o StrictHostKeyChecking=no -i /tmp/id_rsa ec2-user@${{ secrets.EC2_PUBLIC_IP }} << 'EOF'
-            # Update and install Docker on EC2 if not installed
             sudo yum update -y
             sudo amazon-linux-extras install docker -y
             sudo service docker start
             sudo usermod -aG docker ec2-user
 
-            # Log in to Docker Hub
             sudo docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
 
-            # Pull the latest Backend image
             sudo docker pull ${{ secrets.DOCKER_USERNAME }}/trythat-backend:latest
 
-            # Remove old container if it exists
             sudo docker stop trythat-backend || true
             sudo docker rm trythat-backend || true
 
-            # Run the Backend Docker container
             sudo docker run -d -p 8080:80 --name trythat-backend ${{ secrets.DOCKER_USERNAME }}/trythat-backend:latest
 
-            # Optionally remove unused containers and images
             sudo docker system prune -f
           EOF
 
   DAST_zap_scan:
-    name: Scan the Web Application with ZAP
+    name: Run ZAP DAST Scan
     needs: deploy
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
+      - name: Check out repository
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: ZAP Scan
+      - name: Run ZAP Scan
         uses: zaproxy/action-full-scan@v0.12.0
         with:
           token: ${{ secrets.ZAP_PAT }}
           docker_name: 'ghcr.io/zaproxy/zaproxy:stable'
-          target: 'http://13.201.191.234/' # Replace with your deployed Website URL
+          target: 'http://13.201.191.234/'
           rules_file_name: '.zap/rules.tsv'
           cmd_options: '-a'
+
+  container_trivy_scan:
+    name: Run Trivy Container Security Scan
+    needs: docker_build_and_push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKER_USERNAME }}/trythat-backend:latest'
+          format: 'table'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
